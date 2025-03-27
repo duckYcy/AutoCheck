@@ -146,7 +146,7 @@ jobs:
            OUTPUT=$(git commit -m "commit from GitHub Actions" 2>&1 || true)
            # git reset --soft HEAD
            DELIMITER=$(openssl rand -hex 16)
-           echo "::add-mask::$OUTPUT""
+           echo "::add-mask::$OUTPUT"
            echo "commit_output<<$DELIMITER" >> $GITHUB_OUTPUT
            echo "$OUTPUT" >> $GITHUB_OUTPUT
            echo "$DELIMITER" >> $GITHUB_OUTPUT
