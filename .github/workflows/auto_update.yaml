@@ -74,7 +74,10 @@ jobs:
                _txt = file.read()
                if _txt:
                    _normal_patch_output_msg = _txt
-                   print(f'::add-mask::{_normal_patch_output_msg}')
+                   for _line in _normal_patch_output_msg.split("\n"):
+                     _line = _line.strip()
+                     if _line:
+                       print(f'::add-mask::{_line}')
                    _has_normal_patch = 1
  
            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
@@ -144,11 +147,11 @@ jobs:
            # git push origin main
            # 捕获输出，允许命令失败而不终止步骤
            OUTPUT=$(git commit -m "commit from GitHub Actions" 2>&1 || true)
+           ENCODED_OUTPUT=$(echo "$OUTPUT" | base64 -w0)
            # git reset --soft HEAD
            DELIMITER=$(openssl rand -hex 16)
-           echo "::add-mask::$OUTPUT"
            echo "commit_output<<$DELIMITER" >> $GITHUB_OUTPUT
-           echo "$OUTPUT" >> $GITHUB_OUTPUT
+           echo "$ENCODED_OUTPUT" >> $GITHUB_OUTPUT
            echo "$DELIMITER" >> $GITHUB_OUTPUT
  
        - name: determine
@@ -160,10 +163,13 @@ jobs:
          run: |
            import os
            import json
+           import base64
            from pathlib import Path
  
  
            input_data = os.getenv('TRY_OUTPUT', '')
+           input_data = base64.b64decode(input_data).decode()
+           print(input_data)
            _need = 0 if 'nothing to commit' in input_data else 1
  
            output_file = os.getenv('GITHUB_OUTPUT')
@@ -222,7 +228,10 @@ jobs:
            with open(output_file, 'a') as f:
              f.write(f'need_mail={_need_email}\n')
              if _need_email == 1:
-               print(f'::add-mask::{_content}')
+               for _line in _content.split("\n"):
+                 _line = _line.strip()
+                 if _line:
+                   print(f'::add-mask::{_line}')
                f.write(f'mail_content<<{delimiter}\n')
                f.write(f'{_content}\n')
                f.write(f'{delimiter}\n')
