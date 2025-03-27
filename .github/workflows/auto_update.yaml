@@ -148,6 +148,7 @@ jobs:
            # 捕获输出，允许命令失败而不终止步骤
            OUTPUT=$(git commit -m "commit from GitHub Actions" 2>&1 || true)
            ENCODED_OUTPUT=$(echo "$OUTPUT" | base64 -w0)
+           echo "::add-mask::$ENCODED_OUTPUT"
            # git reset --soft HEAD
            DELIMITER=$(openssl rand -hex 16)
            echo "commit_output<<$DELIMITER" >> $GITHUB_OUTPUT
