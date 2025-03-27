@@ -1,0 +1,245 @@
+name: auto_update
+ 
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/20 * * * *'
+ 
+jobs:
+ 
+  excute_script:
+    runs-on: ubuntu-latest
+    env:
+      USER_NAME: ${{ github.actor }}
+      ALWAYS_SAVE: 1
+ 
+    steps:
+       - name: Checkout code
+         uses: actions/checkout@v4
+ 
+       - name: Clone private repo
+         env:
+           PRIVATE_TOKEN: ${{ secrets.PAT }}
+         run: |
+           git clone https://oauth2:$PRIVATE_TOKEN@github.com/${{ env.USER_NAME }}/${{ secrets.REMOTE_REPO_NAME }}.git
+ 
+       - name: Set up Python 3.11
+         uses: actions/setup-python@v5
+         with:
+           python-version: "3.11"
+ 
+       - name: Install Dependency
+         run: |
+           cd ${{ secrets.REMOTE_REPO_NAME }}
+           python -m pip install --upgrade pip
+           python -m pip install requests
+           python -m pip install -r requirements.txt
+ 
+       - name: test break
+         working-directory: ./${{ secrets.REMOTE_REPO_NAME }}
+         run: |
+           echo "Nothing."
+           # exit 1
+ 
+       - name: execute script
+         env:
+           GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+           GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
+         working-directory: ./${{ secrets.REMOTE_REPO_NAME }}
+         run: python main.py ${{ env.ALWAYS_SAVE }}
+ 
+       - name: get results
+         id: get_results
+         working-directory: ./${{ secrets.REMOTE_REPO_NAME }}
+         shell: python
+         run: |
+           import os
+ 
+           _output_name = ''
+           _has_patch = 0
+           if os.path.exists('outputs.txt'):
+             with open('outputs.txt', "r") as file:
+               line = file.readline().strip()
+               if line:
+                   _output_name = line
+                   _has_patch = 1
+           _status = 'is' if _has_patch != 0 else 'not'
+           _out_msg = f'Interesting Patch {_status} Found.'
+           print(_out_msg)
+ 
+           _has_normal_patch = 0
+           _normal_patch_output_msg = ''
+           if os.path.exists('normal_outputs.txt'):
+             with open('normal_outputs.txt', 'r') as file:
+               _txt = file.read()
+               if _txt:
+                   _normal_patch_output_msg = _txt
+                   print(f'::add-mask::{_normal_patch_output_msg}')
+                   _has_normal_patch = 1
+ 
+           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write(f'has_patch={_has_patch}\n')
+                if _has_patch != 0:
+                  _out_msg = _out_msg + 'Preparing for uploading.'
+                  f.write(f'output_file={_output_name}\n')
+                f.write(f'out_msg={_out_msg}\n')
+ 
+                f.write(f'has_normal_patch={_has_normal_patch}\n')
+                if _has_normal_patch != 0:
+                  delimiter = os.urandom(16).hex()
+                  f.write(f'normal_patch_output_msg<<{delimiter}\n')
+                  f.write(f'{_normal_patch_output_msg}\n')
+                  f.write(f'{delimiter}\n')
+ 
+       - name: Print Result
+         run: |
+           # echo "::add-mask::${{ steps.get_results.outputs.normal_patch_output_msg }}"
+           echo "Exec result: ${{ steps.get_results.outputs.out_msg }}"
+ 
+       - name: Upload to github
+         if: ${{ steps.get_results.outputs.has_patch != 0 }}
+         id: upload_to_github
+         continue-on-error: true
+         uses: actions/upload-artifact@v4
+         with:
+          name: ${{ steps.get_results.outputs.output_file }}
+          path: ./${{ secrets.REMOTE_REPO_NAME }}/${{ steps.get_results.outputs.output_file }}
+          if-no-files-found: error
+          retention-days: 90
+ 
+       - name: Upload to gdrive
+         if: ${{ steps.get_results.outputs.has_patch != 0 }}
+         id: upload_to_gdrive
+         continue-on-error: true
+         uses: mathisve/gdrive-upload-action@main
+         with:
+           filename: ./${{ secrets.REMOTE_REPO_NAME }}/${{ steps.get_results.outputs.output_file }}
+           name: ${{ steps.get_results.outputs.output_file }}
+           folderId: ${{ secrets.GDRIVE_FOLDERID }}
+           credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
+           encoded: false
+ 
+       - name: delete file
+         if: ${{ steps.get_results.outputs.has_patch != 0 }}
+         working-directory: ./${{ secrets.REMOTE_REPO_NAME }}
+         shell: bash
+         run: |
+           file_path='${{ steps.get_results.outputs.output_file }}'
+           if [ -f "$file_path" ]; then
+             python -c "import os; os.remove('$file_path')"
+           else
+             echo "No Such File: $file_path"
+           fi
+ 
+       - name: try_deploy
+         id: try_deploy
+         if: steps.get_results.outputs.has_patch == 0 || steps.upload_to_github.outcome == 'success' || steps.upload_to_gdrive.outcome == 'success'
+         working-directory: ./${{ secrets.REMOTE_REPO_NAME }}
+         run: |
+           # ls -a
+           git config --global user.name "GitHub Actions"
+           git config --global user.email "actions@github.com"
+           git add .
+           # git commit -m "commit from GitHub Actions"
+           # git push origin main
+           # 捕获输出，允许命令失败而不终止步骤
+           OUTPUT=$(git commit -m "commit from GitHub Actions" 2>&1 || true)
+           # git reset --soft HEAD
+           DELIMITER=$(openssl rand -hex 16)
+           echo "::add-mask::$OUTPUT""
+           echo "commit_output<<$DELIMITER" >> $GITHUB_OUTPUT
+           echo "$OUTPUT" >> $GITHUB_OUTPUT
+           echo "$DELIMITER" >> $GITHUB_OUTPUT
+ 
+       - name: determine
+         id: determing_res
+         if: steps.try_deploy.outcome == 'success'
+         env:
+           TRY_OUTPUT: ${{ steps.try_deploy.outputs.commit_output }}
+         shell: python
+         run: |
+           import os
+           import json
+           from pathlib import Path
+ 
+ 
+           input_data = os.getenv('TRY_OUTPUT', '')
+           _need = 0 if 'nothing to commit' in input_data else 1
+ 
+           output_file = os.getenv('GITHUB_OUTPUT')
+           delimiter = os.urandom(16).hex()
+           with open(output_file, 'a') as f:
+             f.write(f'need_commit={_need}\n')
+ 
+              #f.write(f"multiline_result<<{delimiter}\n")
+              #f.write(f"Line1: {processed}\nLine2: Additional Info\n")
+              #f.write(f"{delimiter}\n")
+ 
+       - name: real deploy
+         env:
+           NEEDED: ${{ steps.determing_res.outputs.need_commit }}
+         if: steps.determing_res.outcome == 'success' && env.NEEDED == 1
+         working-directory: ./${{ secrets.REMOTE_REPO_NAME }}
+         run: |
+           echo "${{ steps.try_deploy.outputs.commit_output }}"
+           # git add .
+           # git commit -m "commit from GitHub Actions"
+           git push origin main
+ 
+       - name: determine mail context
+         id: determine_mail
+         env:
+           HAS_PATCH: ${{ steps.get_results.outputs.has_patch }}
+           HAS_NORMAL_PATCH: ${{ steps.get_results.outputs.has_normal_patch }}
+           UPLOAD_TO_GITHUB_RES: ${{ steps.upload_to_github.outcome }}
+           UPLOAD_TO_GDRIVE_RES: ${{ steps.upload_to_gdrive.outcome }}
+           UPLOAD_NORMAL_PATCH_MSG: ${{ steps.get_results.outputs.normal_patch_output_msg }}
+         working-directory: ./${{ secrets.REMOTE_REPO_NAME }}
+         shell: python
+         run: |
+           import os
+ 
+           _content = ''
+ 
+           _has_patch = int(os.getenv('HAS_PATCH', '0'))
+           _has_normal_patch = int(os.getenv('HAS_NORMAL_PATCH', '0'))
+           _need_email = 1 if _has_patch or _has_normal_patch else 0
+           if _need_email == 1:
+             if _has_patch:
+               _upload_github = os.getenv('UPLOAD_TO_GITHUB_RES', '')
+               _upload_gdrive = os.getenv('UPLOAD_TO_GDRIVE_RES', '')
+               _content += f'Interesting Patch File Found, Upload Result: {os.linesep}'
+               _content += f'\t[GITHUB ARTIFACTS:] {_upload_github}{os.linesep}'
+               _content += f'\t[GDRIVE:] {_upload_gdrive}{os.linesep}'
+ 
+             if _has_normal_patch:
+               _normal_msg = os.getenv('UPLOAD_NORMAL_PATCH_MSG', '')
+               _content += f'{os.linesep}'
+               _content += f'{_normal_msg}{os.linesep}'
+ 
+           output_file = os.getenv('GITHUB_OUTPUT')
+           delimiter = os.urandom(16).hex()
+           with open(output_file, 'a') as f:
+             f.write(f'need_mail={_need_email}\n')
+             if _need_email == 1:
+               print(f'::add-mask::{_content}')
+               f.write(f'mail_content<<{delimiter}\n')
+               f.write(f'{_content}\n')
+               f.write(f'{delimiter}\n')
+ 
+       - name: Send email
+         if: steps.determine_mail.outputs.need_mail == 1
+         uses: dawidd6/action-send-mail@v4
+         with:
+           server_address: smtp.163.com
+           server_port: 465
+           username: ${{ secrets.MAIL_USERNAME }}
+           password: ${{ secrets.MAIL_PASSWORD }}
+           subject: You have some patch notice! Please check your github actions page.
+           body: ${{ steps.determine_mail.outputs.mail_content }}
+           to: ${{ secrets.PRIVATE_EMAIL_ADDRESS }}
+           from: GitHub Actions
+ 
+       - name: clear err
+         if: steps.upload_to_github.outcome == 'failure' || steps.upload_to_gdrive.outcome == 'failure'
+         run: exit 0

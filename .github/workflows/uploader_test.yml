@@ -1,0 +1,60 @@
+name: uploader_test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  uploader_test:
+    runs-on: ubuntu-latest
+    env:
+      USER_NAME: ${{ github.actor }}
+      FILE_NAME: ver.json
+    
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Clone private repo
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PAT }}
+        run: |
+          git clone https://oauth2:$PRIVATE_TOKEN@github.com/${{ env.USER_NAME }}/${{ secrets.REMOTE_REPO_NAME }}.git
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+    
+      - name: Install Dependency
+        working-directory: ./${{ secrets.REMOTE_REPO_NAME }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests
+          python -m pip install -r requirements.txt
+
+      - name: upload test
+        id: upload_test
+        working-directory: ./${{ secrets.REMOTE_REPO_NAME }}
+        env:
+          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+          GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
+        shell: python
+        run: |
+          import os
+          import sys
+          import json
+          sys.path.append('./')
+          import uploader
+          _output = uploader.upload_to_gofile('${{ env.FILE_NAME }}')
+          output_file = os.getenv("GITHUB_OUTPUT")
+          delimiter = os.urandom(16).hex()
+          
+          with open(output_file, "a") as f:             
+              # 多行输出写法（如需换行符）
+              f.write(f"upload_to_gofile_result<<{delimiter}\n")
+              f.write(f"{json.dumps(_output)}\n")
+              f.write(f"{delimiter}\n")
+      
+      - name: Show result
+        run: |
+          echo "result：${{ steps.upload_test.outputs.upload_to_gofile_result }}"

@@ -1,0 +1,71 @@
+name: read_file_and_upload_test
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [build docker and push]
+    types: [completed]
+  
+jobs:
+  read_file_test:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate_matrix.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+  
+      - name: Install Dependency
+        run: |
+          python -m pip install --upgrade pip
+          # 安装requests
+          python -m pip install requests
+          python -m pip install -r requirements.txt
+      
+      - name: test
+        run: |
+          ls
+
+      - name: generate matrix
+        id: generate_matrix
+        shell: python
+        run: |
+          import os, json, shlex
+          items = []
+          _key = "include"
+          with open("outputs.txt", "r") as file:
+              for line in file:
+                  line = line.strip() # 使用strip()去除行尾的换行符
+                  if line:
+                    safe_line = shlex.quote(line)
+                    items.append({"original": line, "safe": safe_line})
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=" + json.dumps({_key: items}))
+          print(f"::set-output name=matrix1::{json.dumps({_key: items})}")
+          
+      - name: 验证矩阵参数
+        run: |
+          echo "原始矩阵输出值: ${{ steps.generate_matrix.outputs.matrix }}"
+          echo "test: ${{ fromJson(steps.generate_matrix.outputs.matrix).include }}"
+
+  matrix_test:
+    needs: [read_file_test]
+    # if: ${{ needs.validate.outputs.has_content == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.read_file_test.outputs.matrix) }}
+      max-parallel: 5
+      fail-fast: false
+    steps:
+      - name: 循环            
+        run: |
+          ls
+          echo "orig: ${{ matrix.original }}"
+          echo "safe: ${{ matrix.safe }}"
+
+    

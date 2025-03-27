@@ -1,0 +1,54 @@
+name: deploy_test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      USER_NAME: ${{ github.actor }}
+      REPO_NAME: ${{ secrets.REMOTE_REPO_NAME }}
+    steps:        
+      - name: Checkout this
+        uses: actions/checkout@v4
+      
+      - name: Configure Git
+        run: |
+          # git config --global user.name "${{ github.actor }}"
+          # git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Clone private repo
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PAT }}
+
+        run: |
+          git clone https://oauth2:$PRIVATE_TOKEN@github.com/${{ env.USER_NAME }}/${{ env.REPO_NAME }}.git
+          cd ${{ env.REPO_NAME }}
+          
+          # date > outputs.txt
+
+          git add .
+          
+      - name:  private repo
+        id: test_commit
+        run: |
+          cd ${{ env.REPO_NAME }}
+                # 捕获输出，允许命令失败而不终止步骤
+          OUTPUT=$(git commit --dry-run -m "commit from GitHub Actions" 2>&1 || true)
+          
+          # 生成随机分隔符
+          DELIMITER=$(openssl rand -hex 16)
+          
+          # 将输出写入变量，处理多行内容
+          echo "commit_output<<$DELIMITER" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "$DELIMITER" >> $GITHUB_OUTPUT
+          # git push origin main
+      
+      - name: print
+        if: startsWith(${{ steps.test_commit.outputs.commit_output }}, 'Your branch is up to date') 
+        run: |
+          echo 'No update'
