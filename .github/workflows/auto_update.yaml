@@ -170,7 +170,7 @@ jobs:
  
            input_data = os.getenv('TRY_OUTPUT', '')
            input_data = base64.b64decode(input_data).decode()
-           print(input_data)
+           # print(input_data)
            _need = 0 if 'nothing to commit' in input_data else 1
  
            output_file = os.getenv('GITHUB_OUTPUT')
