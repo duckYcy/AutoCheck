@@ -96,7 +96,7 @@ jobs:
  
        - name: Print Result
          run: |
-           # echo "::add-mask::${{ steps.get_results.outputs.normal_patch_output_msg }}"
+           
            echo "Exec result: ${{ steps.get_results.outputs.out_msg }}"
  
        - name: Upload to github
