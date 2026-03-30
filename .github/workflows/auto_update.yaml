@@ -207,7 +207,7 @@ jobs:
            import os
  
            _content = ''
- 
+           _title = ''
            _has_patch = int(os.getenv('HAS_PATCH', '0'))
            _has_normal_patch = int(os.getenv('HAS_NORMAL_PATCH', '0'))
            _need_email = 1 if _has_patch or _has_normal_patch else 0
@@ -218,16 +218,20 @@ jobs:
                _content += f'Interesting Patch File Found, Upload Result: {os.linesep}'
                _content += f'\t[GITHUB ARTIFACTS:] {_upload_github}{os.linesep}'
                _content += f'\t[GDRIVE:] {_upload_gdrive}{os.linesep}'
+               _title = 'Interesting Patch'
  
              if _has_normal_patch:
                _normal_msg = os.getenv('UPLOAD_NORMAL_PATCH_MSG', '')
                _content += f'{os.linesep}'
                _content += f'{_normal_msg}{os.linesep}'
+               if _title == '':
+                 _title = 'Normal Patch'
  
            output_file = os.getenv('GITHUB_OUTPUT')
            delimiter = os.urandom(16).hex()
            with open(output_file, 'a') as f:
              f.write(f'need_mail={_need_email}\n')
+             f.write(f'email_title={_title} Alert! Please check your github actions page.\n')
              if _need_email == 1:
                for _line in _content.split("\n"):
                  _line = _line.strip()
@@ -245,7 +249,7 @@ jobs:
            server_port: 465
            username: ${{ secrets.MAIL_USERNAME }}
            password: ${{ secrets.MAIL_PASSWORD }}
-           subject: You have some patch notice! Please check your github actions page.
+           subject: ${{ steps.determine_mail.outputs.email_title }}
            body: ${{ steps.determine_mail.outputs.mail_content }}
            to: ${{ secrets.PRIVATE_EMAIL_ADDRESS }}
            from: GitHub Actions
